@@ -150,7 +150,7 @@ def handle_message(update, context):
             for text in msgs:
                 reply(update, text)
             return
-        if text.startswith('!'):
+        if text[0].isalpha():
             return
         try:
             m = re.search('^(\d+)\s(.*)', text)
