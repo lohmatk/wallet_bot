@@ -150,7 +150,7 @@ def handle_message(update, context):
             for text in msgs:
                 reply(update, text)
             return
-        if text[0].isalpha():
+        if not text[0].isdigit():
             return
         try:
             m = re.search('^(\d+)\s(.*)', text)
