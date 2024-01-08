@@ -150,6 +150,8 @@ def handle_message(update, context):
             for text in msgs:
                 reply(update, text)
             return
+        if text.startswith('!'):
+            return
         try:
             m = re.search('^(\d+)\s(.*)', text)
             val = int(m.group(1))
