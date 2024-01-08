@@ -91,8 +91,8 @@ def balance_text():
         user_spendings.append(f'{user}: {day_sum:.1f} / {week_sum:.1f} / {month_sum:.1f}')
 
         day_diff = user_daily_target - day_sum
-        week_diff = user_daily_target * (dt.weekday() + 1) - week_sum
-        month_diff = user_daily_target * dt.day - month_sum
+        week_diff = user_daily_target * 7 - week_sum
+        month_diff = user_daily_target * calendar.monthrange(dt.year, dt.month)[1] - month_sum
         user_diff.append(f'{user}: {day_diff:.1f} / {week_diff:.1f} / {month_diff:.1f}')
 
     caption = 'Расходы: день / неделя / месяц'
@@ -102,7 +102,7 @@ def balance_text():
 
     caption += '\n\nОстаток: день / неделя / месяц'
     day_diff = DAILY_TARGET - day_tot_sum
-    week_diff = DAILY_TARGET * (dt.weekday() + 1) - week_tot_sum
+    week_diff = DAILY_TARGET * 7 - week_tot_sum
     month_diff = DAILY_TARGET * calendar.monthrange(dt.year, dt.month)[1] - month_tot_sum
     caption += f'\nОбщие: {day_diff:.1f} / {week_diff:.1f} / {month_diff:.1f}'
     for x in user_diff:
@@ -210,7 +210,6 @@ def migration():
 
 
 def main():
-    os.environ['BOT_TOKEN'] = '5803130723:AAH2glu1_btDzpSne3BcbClGL9VbQkokvUg'
     migration()
     updater = Updater(os.environ['BOT_TOKEN'], use_context=True)
     dp = updater.dispatcher
