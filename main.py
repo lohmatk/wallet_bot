@@ -12,9 +12,8 @@ from loguru import logger
 import sqlite3
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-
+import matplotlib
 import calendar
-
 
 bot_name = 'Ботик'
 prod = 'TBOT_PROD' in os.environ and os.environ['TBOT_PROD'] == '1'
@@ -22,6 +21,7 @@ LOGNAME = 'tbot.log' if prod else 'tbot_dev.log'
 DBFILE = 'tbot.sqlite' if prod else 'tbot_dev.sqlite'
 DAILY_TARGET = 5000
 tmp_path = tempfile.gettempdir() + '/tmp.png'
+dt = datetime.now()
 
 logger.add(LOGNAME, rotation="1 day")
 
@@ -49,24 +49,26 @@ def reply(update, reply_text):
     logger.info(f"Reply: {oneline_reply}")
 
 
-def balance_text():
+def balance_text(chat_id):
     dt = datetime.now()
     week_start = dt - timedelta(days=dt.weekday())
     con = sqlite3.connect(DBFILE)
-    users = con.execute(f'SELECT DISTINCT(user) FROM spendings WHERE user IS NOT NULL').fetchall()
+    users = con.execute(
+        f'SELECT DISTINCT(user) FROM spendings WHERE user IS NOT NULL AND chat_id = {chat_id}').fetchall()
     users = [x[0] for x in users]
     users_count = len(users)
 
-    dt = datetime.now()
     week_start = dt - timedelta(days=dt.weekday())
     month_tot_sum = con.execute(
-        f"select sum(val) from spendings where ts >= '{dt.year}-{dt.month:02}-01' and ts < '{dt.year}-{dt.month:02}-32';").fetchone()[
+        f"select sum(val) from spendings where ts >= '{dt.year}-{dt.month:02}-01' and ts < '{dt.year}-{dt.month:02}-32' AND chat_id = {chat_id};").fetchone()[
                         0] or 0
     week_tot_sum = con.execute(
-        f"select sum(val) from spendings where ts >= '{dt.year}-{week_start.month:02}-{week_start.day:02}';").fetchone()[
+        f"select sum(val) from spendings where ts >= '{dt.year}-{week_start.month:02}-{week_start.day:02}' AND chat_id = {chat_id};").fetchone()[
                        0] or 0
     day_tot_sum = \
-        con.execute(f"select sum(val) from spendings where ts >= '{dt.year}-{dt.month:02}-{dt.day:02}';").fetchone()[0] or 0
+        con.execute(
+            f"select sum(val) from spendings where ts >= '{dt.year}-{dt.month:02}-{dt.day:02}' AND chat_id = {chat_id};").fetchone()[
+            0] or 0
 
     query_start = 'select sum(val) from spendings'
     month_cond = f"ts >= '{dt.year}-{dt.month:02}-01' and ts < '{dt.year}-{dt.month:02}-32'"
@@ -75,18 +77,24 @@ def balance_text():
 
     # splitted spendings
     user_cond = 'user = :user'
-    month_shared = con.execute(f"{query_start} WHERE {month_cond} AND user IS NULL;").fetchone()[0] or 0
-    week_shared = con.execute(f"{query_start} WHERE {week_cond} AND user IS NULL;").fetchone()[0] or 0
-    day_shared = con.execute(f"{query_start} WHERE {day_cond} AND user IS NULL;").fetchone()[0] or 0
+    month_shared = \
+    con.execute(f"{query_start} WHERE {month_cond} AND user IS NULL AND chat_id = {chat_id};").fetchone()[0] or 0
+    week_shared = con.execute(f"{query_start} WHERE {week_cond} AND user IS NULL AND chat_id = {chat_id};").fetchone()[
+                      0] or 0
+    day_shared = con.execute(f"{query_start} WHERE {day_cond} AND user IS NULL AND chat_id = {chat_id};").fetchone()[
+                     0] or 0
     month_shared, week_shared, day_shared = month_shared / users_count, week_shared / users_count, day_shared / users_count
 
     user_spendings = []
     user_diff = []
     user_daily_target = DAILY_TARGET / users_count
     for user in users:
-        month_sum = con.execute(f"{query_start} WHERE {month_cond} AND {user_cond};", {'user': user}).fetchone()[0] or 0
-        week_sum = con.execute(f"{query_start} WHERE {week_cond} AND {user_cond};", {'user': user}).fetchone()[0] or 0
-        day_sum = con.execute(f"{query_start} WHERE {day_cond} AND {user_cond};", {'user': user}).fetchone()[0] or 0
+        month_sum = con.execute(f"{query_start} WHERE {month_cond} AND {user_cond} AND chat_id = {chat_id};",
+                                {'user': user}).fetchone()[0] or 0
+        week_sum = con.execute(f"{query_start} WHERE {week_cond} AND {user_cond} AND chat_id = {chat_id};",
+                               {'user': user}).fetchone()[0] or 0
+        day_sum = con.execute(f"{query_start} WHERE {day_cond} AND {user_cond} AND chat_id = {chat_id};",
+                              {'user': user}).fetchone()[0] or 0
         day_sum, week_sum, month_sum = day_sum + day_shared, week_sum + week_shared, month_sum + month_shared
         user_spendings.append(f'{user}: {day_sum:.1f} / {week_sum:.1f} / {month_sum:.1f}')
 
@@ -139,8 +147,8 @@ def handle_message(update, context):
         if text.endswith(f'@{bot_name}'):
             text = text[:-11]
         if text == '/current' or text == '/balance':
-            graph(tmp_path)
-            update.message.reply_photo(photo=open(tmp_path, 'rb'), caption=balance_text())
+            graph(tmp_path, update.message.chat.id)
+            update.message.reply_photo(photo=open(tmp_path, 'rb'), caption=balance_text(update.message.chat.id))
             return
         if text == '/all':
             with sqlite3.connect(DBFILE) as con:
@@ -162,15 +170,16 @@ def handle_message(update, context):
 
         con = sqlite3.connect(DBFILE)
         with con:
-            res = con.execute(f'INSERT INTO spendings(ts, val, descr, user) VALUES (:ts, :val, :descr, :user)',
-                              {'ts': datetime.now(), 'val': val, 'descr': descr,
-                               'user': update.message.from_user.username})
+            res = con.execute(
+                f'INSERT INTO spendings(ts, val, descr, user, chat_id) VALUES (:ts, :val, :descr, :user, :chat_id)',
+                {'ts': datetime.now(), 'val': val, 'descr': descr,
+                 'user': update.message.from_user.username, 'chat_id': update.message.chat.id})
 
         keyboard = [[
             InlineKeyboardButton('разделить поровну', callback_data=f'split {res.lastrowid}'),
         ]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(balance_text(), reply_markup=reply_markup)
+        update.message.reply_text(balance_text(update.message.chat.id), reply_markup=reply_markup)
         return
 
     except Exception as e:
@@ -178,16 +187,23 @@ def handle_message(update, context):
         reply(update, f'Произошла какая-то ошибка: {e}')
 
 
-def graph(path):
+def graph(path, chat_id):
     days_from_start_of_month = datetime.now().day
     results = {}
-    con = sqlite3.connect(DBFILE)
-    for day in range(1, days_from_start_of_month + 1):
-        q = f"select sum(val) from spendings where ts >= '2023-11-{day:02}' and ts < '2023-11-{day + 1:02}';"
-        res = con.execute(q).fetchone()[0] or 0
-        results[str(day)] = res
-    con.close()
-
+    with sqlite3.connect(DBFILE) as con:
+        for day in range(1, days_from_start_of_month + 1):
+            query = """
+                SELECT COALESCE(SUM(val), 0) 
+                FROM spendings 
+                WHERE ts >= ? AND ts < ? AND chat_id = ?;
+            """
+            start_date = f"{dt.year}-{dt.month:02}-{day:02}"
+            end_date = f"{dt.year}-{dt.month:02}-{day + 1:02}"
+            res = con.execute(query, (start_date, end_date, chat_id)).fetchone()[0]
+            results[str(day)] = res
+    matplotlib.use('agg')
+    print(results.keys())
+    print(results.values())
     plt.bar(results.keys(), results.values())
     plt.grid()
     plt.savefig(path)
@@ -197,18 +213,15 @@ def graph(path):
 def migration():
     con = sqlite3.connect(DBFILE)
     con.execute(
-        "CREATE TABLE IF NOT EXISTS spendings(id INTEGER PRIMARY KEY, ts timestamp, val integer, descr VARCHAR, user VARCHAR)")
+        "CREATE TABLE IF NOT EXISTS spendings(id INTEGER PRIMARY KEY, ts timestamp, val integer, descr VARCHAR, user VARCHAR, chat_id TEXT)")
+
     with con:
         v, = con.execute("PRAGMA user_version").fetchone()
-    if v == 0:
-        with con:
-            con.execute('ALTER TABLE spendings ADD COLUMN user VARCHAR;')
-            con.execute('PRAGMA user_version = 1;')
-    elif v == 1:
-        pass
-    else:
-        raise RuntimeError(
-            f"Database is at version {v}. This version of software only supports opening versions 0 or 1.")
+    #
+    # if v != 1:
+    #     raise RuntimeError(
+    #         f"Database is at version {v}. This version of software only supports opening version 1.")
+    #
 
 
 def main():
